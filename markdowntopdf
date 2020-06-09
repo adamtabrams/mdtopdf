@@ -1,0 +1,220 @@
+#!/bin/sh
+
+font() {
+echo ".FT $1"
+cat -
+echo ".FT R"
+}
+
+inc_size() {
+echo ".PT_SIZE +$1"
+cat -
+echo ".PT_SIZE -$1"
+}
+
+dec_size() {
+echo ".PT_SIZE -$1"
+cat -
+echo ".PT_SIZE +$1"
+}
+
+add_rule() {
+cat -
+echo ".ALD 1p" | br
+echo "\*[RULE]" | color RULEGREY | br
+}
+
+color() {
+echo ".COLOR $1"
+cat -
+echo ".COLOR BLACK"
+}
+
+br() {
+cat -
+echo ".BR"
+}
+
+space() {
+cat -
+echo ".SPACE"
+}
+
+strike() {
+line=$(cat -)
+regex="\(.*\)~~\([^~]*\)~~\(.*\)"
+echo "$line" | sed "s|$regex|\1|"
+echo ".UNDERSCORE -3p \"$(echo "$line" | sed "s|$regex|\2|")\""
+echo "$line" | sed "s|$regex|\3|"
+}
+
+bullet() {
+line=$(cat -)
+printf "%s" "$(echo "$line" | sed "s|\([[:blank:]]*\).*|\1|")"
+printf "\*[ALD2]\*[SIZE +4]\(bu \*[SIZE -4]\*[RLD2]"
+echo "$line" | sed "s|.*[*+-] \(.*\)|\1|" | space
+}
+
+trim_header() {
+cat - | sed "s|^##* \(.*\)|\1|"
+}
+
+h1() {
+cat - | trim_header | font B | add_rule | inc_size 10
+}
+
+h2() {
+cat - | trim_header | font B | add_rule | inc_size 6
+}
+
+h3() {
+cat - | trim_header | inc_size 3 | font B | space
+}
+
+h4() {
+cat - | trim_header | inc_size 1 | font B | space
+}
+
+h5() {
+cat - | trim_header | dec_size 1 | font B | space
+}
+
+h6() {
+cat - | trim_header | dec_size 1 | font B | color H6GREY | space
+}
+
+is_bold=0
+is_italics=0
+
+symbol_to_macro() {
+
+is_bold=$1
+is_italics=$2
+symbol=$(cat -)
+
+# return code is the decimal value of [is_bold][is_italics] in binary.
+
+if [  "$symbol" = "**" ] ||
+    [ "$symbol" = "__" ] && [ "$is_bold" = 0 ] && [ "$is_italics" = 0 ]; then
+    printf '\\f[B]'; return 2
+elif [ "$symbol" = "**" ] ||
+    [  "$symbol" = "__" ] && [ "$is_bold" = 0 ] && [ "$is_italics" = 1 ]; then
+    printf '\\f[BI]'; return 3
+elif [ "$symbol" = "**" ] ||
+    [  "$symbol" = "__" ] && [ "$is_bold" = 1 ] && [ "$is_italics" = 0 ]; then
+    printf '\\f[R]'; return 0
+elif [ "$symbol" = "**" ] ||
+    [  "$symbol" = "__" ] && [ "$is_bold" = 1 ] && [ "$is_italics" = 1 ]; then
+    printf '\\f[I]'; return 1
+elif [ "$symbol" = "*" ] ||
+    [  "$symbol" = "_" ] && [ "$is_bold" = 0 ] && [ "$is_italics" = 0 ]; then
+    printf '\\f[I]'; return 1
+elif [ "$symbol" = "*" ] ||
+    [  "$symbol" = "_" ] && [ "$is_bold" = 1 ] && [ "$is_italics" = 0 ]; then
+    printf '\\f[BI]'; return 3
+elif [ "$symbol" = "*" ] ||
+    [  "$symbol" = "_" ] && [ "$is_bold" = 0 ] && [ "$is_italics" = 1 ]; then
+    printf '\\f[R]'; return 0
+elif [ "$symbol" = "*" ] ||
+    [  "$symbol" = "_" ] && [ "$is_bold" = 1 ] && [ "$is_italics" = 1 ]; then
+    printf '\\f[B]'; return 2
+fi
+}
+
+parse_line() {
+
+line=$(cat -)
+
+while true; do
+
+    # if no symbols, print line and break loop
+    echo "$line" | grep -q "[^\\][_*]" || { echo "$line"; break; }
+
+    # parse line for first symbol
+    ending=$(echo "$line" | rev | sed "s|\(.*[*_]\)[^\\].*|\1|" | rev)
+    fchar=$(echo "$ending" | cut -c1)
+    [ "$(echo "$line" | cut -c1)" = "$fchar" ] && ending=$line
+
+    # if there's anything before the first symbol, print it
+    [ "$(echo "$line" | cut -c1)" != "$fchar" ] &&
+        printf "%s" "$(echo "$line" | rev | sed "s|.*[*_]\([^\\].*\)|\1|" | rev)"
+
+    # print macro for first symbol
+    echo "$ending" | sed "s|\([${fchar}]*\).*|\1|" |
+        symbol_to_macro "$is_bold" "$is_italics"
+
+    state="$?"
+    if [ "$state" = 0 ]; then
+        is_bold=0; is_italics=0
+    elif [ "$state" = 1 ]; then
+        is_bold=0; is_italics=1
+    elif [ "$state" = 2 ]; then
+        is_bold=1; is_italics=0
+    elif [ "$state" = 3 ]; then
+        is_bold=1; is_italics=1
+    fi
+
+    # truncate line to everything after first symbol
+    line=$(echo "$ending" | sed "s|[${fchar}]*\(.*\)|\1|")
+
+done
+}
+
+match() {
+    echo "$1" | grep -q "$2"
+}
+
+parse_file() {
+echo "$header"
+
+while IFS= read -r line; do
+    if [ "$line" = "" ]; then
+        echo
+    elif match "$line" "^###### "; then
+        echo "$line" | h6
+    elif match "$line" "^##### "; then
+        echo "$line" | h5
+    elif match "$line" "^#### "; then
+        echo "$line" | h4
+    elif match "$line" "^### "; then
+        echo "$line" | h3
+    elif match "$line" "^## "; then
+        echo "$line" | h2
+    elif match "$line" "^# "; then
+        echo "$line" | h1
+    elif match "$line" "[*_][*_].*[*_][*_]"; then
+        echo "$line" | parse_line
+    elif match "$line" "[*_].*[*_]"; then
+        echo "$line" | parse_line
+    elif match "$line" "^[[:blank:]]*[*+-] "; then
+        echo "$line" | bullet
+    elif match "$line" "^[[:blank:]]*[[:alnum:]]. "; then
+        echo "$line" | space
+    elif match "$line" "~~.*~~"; then
+        echo "$line" | strike
+    else
+        echo "$line"
+    fi
+done < "$1"
+}
+
+header="\#
+.PAGE 8.5i 11i 1i 1i 1i 1i
+.FAMILY H
+.PT_SIZE 12
+.HY_SET 1 18p 0.5p
+.SS 0
+.SMARTQUOTES
+\#
+.NEWCOLOR BLACK #000000
+.NEWCOLOR RULEGREY #EAECEF
+.NEWCOLOR H6GREY #6a737d
+\#"
+
+in_file=$1
+out_file=$2
+
+[ ! -e "$in_file" ] && echo "$in_file doesn't exist" >&2 && exit 1
+
+parse_file "$in_file" | groff -mom - | pstopdf -o "$out_file"
+# parse_file "$in_file" | tee debug.mom | groff -mom - | pstopdf -o "$out_file"
