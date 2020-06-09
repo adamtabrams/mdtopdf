@@ -5,7 +5,7 @@ PDF document. To do this it actually uses groff as an intermediate format.
 Groff has been around for a long time and has a superset of markdown's
 features.
 
-**### The current implementation is a proof of concept.
+### The current implementation is a proof of concept.
 
 # Usage
 
